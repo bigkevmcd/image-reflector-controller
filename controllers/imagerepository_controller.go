@@ -100,7 +100,7 @@ func (r *ImageRepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 			meta.SuspendedReason,
 			msg,
 		)
-		if err := r.Status().Update(ctx, &imageRepo); err != nil {
+		if err := r.patchStatus(ctx, req, imageRepo.Status); err != nil {
 			log.Error(err, "unable to update status")
 			return ctrl.Result{Requeue: true}, err
 		}
@@ -127,7 +127,7 @@ func (r *ImageRepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 			imagev1alpha1.ImageURLInvalidReason,
 			err.Error(),
 		)
-		if err := r.Status().Update(ctx, &imageRepo); err != nil {
+		if err := r.patchStatus(ctx, req, imageRepo.Status); err != nil {
 			return ctrl.Result{Requeue: true}, err
 		}
 		log.Error(err, "Unable to parse image name", "imageName", imageRepo.Spec.Image)
@@ -137,7 +137,7 @@ func (r *ImageRepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	// Set CanonicalImageName based on the parsed reference
 	if c := ref.Context().String(); imageRepo.Status.CanonicalImageName != c {
 		imageRepo.Status.CanonicalImageName = c
-		if err = r.Status().Update(ctx, &imageRepo); err != nil {
+		if err := r.patchStatus(ctx, req, imageRepo.Status); err != nil {
 			return ctrl.Result{Requeue: true}, err
 		}
 	}
@@ -149,7 +149,7 @@ func (r *ImageRepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	}
 	if ok {
 		reconcileErr := r.scan(ctx, &imageRepo, ref)
-		if err := r.Status().Update(ctx, &imageRepo); err != nil {
+		if err := r.patchStatus(ctx, req, imageRepo.Status); err != nil {
 			return ctrl.Result{Requeue: true}, err
 		}
 		if reconcileErr != nil {
@@ -266,6 +266,21 @@ func (r *ImageRepositoryReconciler) scan(ctx context.Context, imageRepo *imagev1
 	)
 
 	return nil
+}
+
+func (r *ImageRepositoryReconciler) patchStatus(ctx context.Context,
+	req ctrl.Request,
+	newStatus imagev1alpha1.ImageRepositoryStatus) error {
+
+	var auto imagev1alpha1.ImageRepository
+	if err := r.Get(ctx, req.NamespacedName, &auto); err != nil {
+		return err
+	}
+
+	patch := client.MergeFrom(auto.DeepCopy())
+	auto.Status = newStatus
+
+	return r.Status().Patch(ctx, &auto, patch)
 }
 
 func transportFromSecret(certSecret *corev1.Secret) (*http.Transport, error) {
